@@ -1,5 +1,8 @@
 *.o
 *.tar
+*.tar.gz
 *.gz
 *.exe
 dmkbsc
+build
+build.*
