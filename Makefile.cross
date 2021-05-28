@@ -9,45 +9,27 @@ ms_bin_target    = $(bin_target).exe
 
 BUILDS    ?= NATIVE MSDOS MSWIN32 MSWIN64
 
-NATIVE_cross_os        = linux
-NATIVE_cross_arch     := $(shell arch)
-NATIVE_cross_cc        = $(CC)
-NATIVE_bin_target      = $(linux_bin_target)
-NATIVE_dir_suffix      = $(NATIVE_cross_os).$(NATIVE_cross_arch)
-NATIVE_build_dir       = $(build_dir).$(NATIVE_dir_suffix)
-NATIVE_build_target    = $(NATIVE_build_dir)/$(NATIVE_bin_target)
+define cross_settings
+$(1)_cross_os        = $(2)
+$(1)_cross_arch      = $(3)
+$(1)_cross_cc        = $(4)
+$(1)_bin_target      = $(if $(subst linux,,$(2)),$$(ms_bin_target),\
+							$$(linux_bin_target))
+$(1)_dir_suffix      = $$($(1)_cross_os).$$($(1)_cross_arch)
+$(1)_build_dir       = $$(build_dir).$(5)
+$(1)_build_target    = $$($(1)_build_dir)/$$($(1)_bin_target)
+endef
 
-LINUX_ARM_cross_os     = linux
-LINUX_ARM_cross_arch   = armv7l
-LINUX_ARM_cross_cc     = arm-linux-gnu-gcc
-LINUX_ARM_bin_target   = $(linux_bin_target)
-LINUX_ARM_dir_suffix   = $(LINUX_ARM_cross_os).$(LINUX_ARM_cross_arch)
-LINUX_ARM_build_dir    = $(build_dir).$(LINUX_ARM_dir_suffix)
-LINUX_ARM_build_target = $(LINUX_ARM_build_dir)/$(LINUX_ARM_bin_target)
-
-MSDOS_cross_os         = msdos
-MSDOS_cross_arch       = x86
-MSDOS_cross_cc         = i586-pc-msdosdjgpp-gcc
-MSDOS_bin_target       = $(ms_bin_target)
-MSDOS_dir_suffix       = $(MSDOS_cross_os).$(MSDOS_cross_arch)
-MSDOS_build_dir        = $(build_dir).$(MSDOS_cross_os)
-MSDOS_build_target     = $(MSDOS_build_dir)/$(MSDOS_bin_target)
-
-MSWIN32_cross_os       = win
-MSWIN32_cross_arch     = x86
-MSWIN32_cross_cc       = i686-w64-mingw32-gcc
-MSWIN32_bin_target     = $(ms_bin_target)
-MSWIN32_dir_suffix     = $(MSWIN32_cross_os).$(MSWIN32_cross_arch)
-MSWIN32_build_dir      = $(build_dir).$(MSWIN32_cross_os)32
-MSWIN32_build_target   = $(MSWIN32_build_dir)/$(MSWIN32_bin_target)
-
-MSWIN64_cross_os       = win
-MSWIN64_cross_arch     = x64
-MSWIN64_cross_cc       = x86_64-w64-mingw32-gcc
-MSWIN64_bin_target     = $(ms_bin_target)
-MSWIN64_dir_suffix     = $(MSWIN64_cross_os).$(MSWIN64_cross_arch)
-MSWIN64_build_dir      = $(build_dir).$(MSWIN64_cross_os)64
-MSWIN64_build_target   = $(MSWIN64_build_dir)/$(MSWIN64_bin_target)
+$(eval $(call cross_settings,NATIVE,linux,\
+			$(shell arch),$$(CC),$$(NATIVE_dir_suffix)))
+$(eval $(call cross_settings,LINUX_ARM,linux,\
+			armv7l,arm-linux-gnu-gcc,$$(LINUX_ARM_dir_suffix)))
+$(eval $(call cross_settings,MSDOS,msdos,\
+			x86,i586-pc-msdosdjgpp-gcc,$$(MSDOS_cross_os)))
+$(eval $(call cross_settings,MSWIN32,win,x86,\
+			i686-w64-mingw32-gcc,$$(MSWIN32_cross_os)32))
+$(eval $(call cross_settings,MSWIN64,win,x64,\
+			x86_64-w64-mingw32-gcc,$$(MSWIN64_cross_os)64))
 
 NATIVE_CC  = $(CC)
 
