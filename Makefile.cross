@@ -10,26 +10,26 @@ ms_bin_target    = $(bin_target).exe
 BUILDS    ?= NATIVE MSDOS MSWIN32 MSWIN64
 
 define cross_settings
-$(1)_cross_os        = $(2)
-$(1)_cross_arch      = $(3)
-$(1)_cross_cc        = $(4)
-$(1)_bin_target      = $(if $(subst linux,,$(2)),$$(ms_bin_target),\
-							$$(linux_bin_target))
-$(1)_dir_suffix      = $$($(1)_cross_os).$$($(1)_cross_arch)
-$(1)_build_dir       = $$(build_dir).$(5)
-$(1)_build_target    = $$($(1)_build_dir)/$$($(1)_bin_target)
+$(eval $(1)_cross_os        = $(2))
+$(eval $(1)_cross_arch      = $(3))
+$(eval $(1)_cross_cc        = $(4))
+$(eval $(1)_bin_target      = $(if $(subst linux,,$(2)),$$(ms_bin_target),\
+							$$(linux_bin_target)))
+$(eval $(1)_dir_suffix      = $$($(1)_cross_os).$$($(1)_cross_arch))
+$(eval $(1)_build_dir       = $$(build_dir).$(5))
+$(eval $(1)_build_target    = $$($(1)_build_dir)/$$($(1)_bin_target))
 endef
 
-$(eval $(call cross_settings,NATIVE,linux,\
-			$(shell arch),$$(CC),$$(NATIVE_dir_suffix)))
-$(eval $(call cross_settings,LINUX_ARM,linux,\
-			armv7l,arm-linux-gnu-gcc,$$(LINUX_ARM_dir_suffix)))
-$(eval $(call cross_settings,MSDOS,msdos,\
-			x86,i586-pc-msdosdjgpp-gcc,$$(MSDOS_cross_os)))
-$(eval $(call cross_settings,MSWIN32,win,x86,\
-			i686-w64-mingw32-gcc,$$(MSWIN32_cross_os)32))
-$(eval $(call cross_settings,MSWIN64,win,x64,\
-			x86_64-w64-mingw32-gcc,$$(MSWIN64_cross_os)64))
+$(call cross_settings,NATIVE,linux,\
+			$(shell arch),$$(CC),$$(NATIVE_dir_suffix))
+$(call cross_settings,LINUX_ARM,linux,\
+			armv7l,arm-linux-gnu-gcc,$$(LINUX_ARM_dir_suffix))
+$(call cross_settings,MSDOS,msdos,\
+			x86,i586-pc-msdosdjgpp-gcc,$$(MSDOS_cross_os))
+$(call cross_settings,MSWIN32,win,x86,\
+			i686-w64-mingw32-gcc,$$(MSWIN32_cross_os)32)
+$(call cross_settings,MSWIN64,win,x64,\
+			x86_64-w64-mingw32-gcc,$$(MSWIN64_cross_os)64)
 
 NATIVE_CC  = $(CC)
 
