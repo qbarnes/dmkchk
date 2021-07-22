@@ -47,7 +47,7 @@ track_check(struct dmk_state *dmkst, int side, int track)
 			if (serrs > 1)
 				printf(", ");
 
-			printf("%d", sector);
+			printf("%u", (unsigned int)si.sector);
 		}
 
 		free(data);
