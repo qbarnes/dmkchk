@@ -9,7 +9,7 @@ bin_target    ?= $(PRODUCT)
 build_target  ?= $(build_dir)/$(bin_target)
 build_targets ?= $(build_target)
 
-obj_targets = dmklib/libdmk.o dmkbsc.o
+obj_targets = dmklib/libdmk.o dmkchk.o
 
 tar_files   = LICENSE README.md $(build_targets)
 
@@ -27,7 +27,7 @@ $(build_target): | $(build_dir)
 $(bin_target): $(obj_targets) | dmklib
 	$(LINK.c) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
-dmkbsc.c: ../dmkbsc.c
+dmkchk.c: ../dmkchk.c
 	ln -s -- '$<' '$@'
 
 dmklib/libdmk.o: dmklib/libdmk.c dmklib/libdmk.h
