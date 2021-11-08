@@ -21,7 +21,7 @@ distclean_files = $(clobber_files) $(wildcard build.*)
 
 all: $(build_target)
 
-$(build_target): | $(build_dir)
+$(build_target): FORCE | $(build_dir)
 	$(MAKE) -C '$(@D)' -I .. -f ../Makefile '$(@F)'
 
 $(bin_target): $(obj_targets) | dmklib
@@ -52,5 +52,5 @@ clean clobber distclean:
 	$(call scrub_files_call,$($@_files))
 	$(MAKE) -C dmklib $(libdmk_args) clean
 
-.PHONY: all release clean clobber distclean
+.PHONY: all release clean clobber distclean FORCE
 .DELETE_ON_ERROR:
