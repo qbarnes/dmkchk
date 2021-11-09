@@ -14,18 +14,29 @@
 #define VERSION "0.uncontrolled"
 #endif
 
+#define DIV_ROUND_UP(n, d)      (((n) + (d) - 1) / (d))
+#define type_to_bits(type)      (sizeof(type) * 8)
+#define uint_to_bits(nr)        DIV_ROUND_UP(nr, type_to_bits(unsigned int))
+
+#define set_bit(A,k)            (A[(k)/type_to_bits(*A)] |= \
+                                   ((typeof(*A))1 << ((k) % type_to_bits(*A))))
+#define clear_bit(A,k)          (A[(k)/type_to_bits(*A)] &= \
+                                  ~((typeof(*A))1 << ((k) % type_to_bits(*A))))
+#define test_bit(A,k)        (!!(A[(k)/type_to_bits(*A)] & \
+                                   ((typeof(*A))1 << ((k) % type_to_bits(*A)))))
+
 int
 track_check(struct dmk_state *dmkst, int side, int track)
 {
-	uint8_t	*data = NULL;
-
 	if (!dmk_seek(dmkst, track, side)) {
 		printf("Seek error on track %d, side %d!\n", track, side);
 		goto error;
 	}
 
+	uint8_t		*data = NULL;
+	unsigned int	bad_sectors[uint_to_bits(256)] = { 0 };
+	int		sector_errors = 0, total_sectors = 0;
 	sector_info_t	si;
-	int		serrs = 0;
 
 	for (int sector = 0;
 	     (sector < DMK_MAX_SECTOR) && dmk_read_id(dmkst, &si); ++sector) {
@@ -34,33 +45,61 @@ track_check(struct dmk_state *dmkst, int side, int track)
 		data = malloc(data_size);
 
 		if (!data) {
-			fprintf(stderr, "Failed to allocate %llu bytes for "
-				"sector buffer.\n",
-				(long long unsigned int)data_size);
+			fprintf(stderr, "Failed to allocate %zu bytes for "
+				"sector buffer.\n", data_size);
 			goto error;
 		}
 
+		++total_sectors;
 		if (!dmk_read_sector(dmkst, &si, data)) {
-			if (++serrs == 1)
-				printf("Track %d, side %d: ", track, side);
-
-			if (serrs > 1)
-				printf(", ");
-
-			printf("%u", (unsigned int)si.sector);
+			set_bit(bad_sectors, si.sector);
+			++sector_errors;
 		}
 
 		free(data);
 		data = NULL;
 	}
-	
-	if (serrs)
+
+	if (sector_errors) {
+		printf("Track %d, side %d (%d/%d): ",
+			track, side, sector_errors, total_sectors);
+
+		int reports = 0;
+		int start_range = -1, end_range = -1;
+
+		for (int i = 0; i < 256; ++i) {
+			if (test_bit(bad_sectors, i)) {
+				end_range = i;
+				if (start_range == -1)
+					start_range = i;
+			}
+
+			if ((!test_bit(bad_sectors, i) || i == 255) &&
+			     end_range != -1) {
+
+				if (reports)
+					printf(", ");
+				else
+					reports = 1;
+
+				if (start_range != -1 &&
+				    start_range != end_range)
+					printf("%u-", start_range);
+
+				printf("%u", end_range);
+
+				start_range = end_range = -1;
+			}
+		}
+
 		printf("\n");
+	}
 
 error:
 	if (data)
 		free (data);
-	return serrs;
+
+	return sector_errors;
 }
 
 
