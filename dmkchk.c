@@ -171,10 +171,9 @@ main(int argc, char **argv)
 
 		int	bse = 0;
 
-		for (int s = 0; s <= ds; ++s) {
-			for (int t = 0; t < tracks; ++t)
+		for (int t = 0; t < tracks; ++t)
+			for (int s = 0; s <= ds; ++s)
 				bse += track_check(dmkst, s, t);
-		}
 
 		if (!bse)
 			printf("No bad sectors found.\n");
