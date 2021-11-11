@@ -25,15 +25,19 @@
 #define test_bit(A,k)        (!!(A[(k)/type_to_bits(*A)] & \
                                    ((typeof(*A))1 << ((k) % type_to_bits(*A)))))
 
+
+/* prev_total_sectors is both an input and output parameter. */
 int
-track_check(struct dmk_state *dmkst, int side, int track)
+track_check(struct dmk_state *dmkst, int side, int track,
+		int verbose, int *prev_total_sectors)
 {
+	uint8_t	*data = NULL;
+
 	if (!dmk_seek(dmkst, track, side)) {
 		printf("Seek error on track %d, side %d!\n", track, side);
 		goto error;
 	}
 
-	uint8_t		*data = NULL;
 	unsigned int	bad_sectors[uint_to_bits(256)] = { 0 };
 	int		sector_errors = 0, total_sectors = 0;
 	sector_info_t	si;
@@ -60,9 +64,21 @@ track_check(struct dmk_state *dmkst, int side, int track)
 		data = NULL;
 	}
 
-	if (sector_errors) {
-		printf("Track %d, side %d (%d/%d): ",
-			track, side, sector_errors, total_sectors);
+	if (*prev_total_sectors == -1)
+		*prev_total_sectors = total_sectors;
+
+	if (sector_errors || (*prev_total_sectors != total_sectors) ||
+	    (verbose > 1)) {
+
+		printf("%3d/%1d      %3d       ", track, side, total_sectors);
+
+		if (*prev_total_sectors == total_sectors) {
+			printf("          ");
+		} else {
+			printf("Y      %3d", *prev_total_sectors);
+		}
+
+		printf("     %3d     ", sector_errors);
 
 		int reports = 0;
 		int start_range = -1, end_range = -1;
@@ -95,11 +111,74 @@ track_check(struct dmk_state *dmkst, int side, int track)
 		printf("\n");
 	}
 
+	*prev_total_sectors = total_sectors;
+
 error:
 	if (data)
 		free (data);
 
 	return sector_errors;
+}
+
+
+void
+print_header()
+{
+	static const char *const hdr[] = {
+		"Trk/Side  Sector  Sec Cnt  Prev    Sector  Error",
+		"          Count   Change?  SecCnt  Errors  List"
+	};
+
+	puts(hdr[0]);
+	puts(hdr[1]);
+
+	for (const char *s = hdr[0]; *s; ++s)
+		putchar('-');
+
+	putchar('\n');
+}
+
+
+int
+process_files(int file_count, char **file_list, int verbose)
+{
+	for (int fi = 0; fi < file_count; ++fi) {
+		struct dmk_state *dmkst;
+		int	tracks, ds, dd;
+
+		char *fn = file_list[fi];
+
+		if (file_count > 1)
+			printf("%sFile: %s\n", (fi > 0 ? "\n" : ""), fn);
+
+		if (verbose)
+			print_header();
+
+		dmkst = dmk_open_image(fn, 0, &ds, &tracks, &dd);
+		if (!dmkst) {
+			fprintf(stderr, "Failed to open '%s' (%d [%s]).\n",
+				fn, errno, strerror(errno));
+			return 2;
+		}
+
+		int	bse = 0;
+		int	total_sectors = -1;
+
+		for (int t = 0; t < tracks; ++t)
+			for (int s = 0; s <= ds; ++s)
+				bse += track_check(dmkst, s, t, verbose,
+						   &total_sectors);
+
+		if (!bse)
+			printf("No bad sectors found.\n");
+
+		if (!dmk_close_image(dmkst)) {
+			fprintf(stderr, "Close of '%s' failed.\n", fn);
+			return 1;
+		}
+	}
+
+	return 0;
 }
 
 
@@ -110,7 +189,7 @@ usage(const char *pgmname, int exitval)
 	fprintf(stderr, "Report sector errors in DMK file.\n");
 	fprintf(stderr, "Options:\n");
 	fprintf(stderr, "    -h		Display help and exit\n");
-	fprintf(stderr, "    -v		verbose\n");
+	fprintf(stderr, "    -v		verbose (repeat for more verbosity)\n");
 	fprintf(stderr, "    -V		Display version and exit\n");
 
 	exit(exitval);
@@ -140,7 +219,7 @@ main(int argc, char **argv)
 			usage(argv[0], 0);
 			break;
 		case 'v':
-			verbose = 1;
+			++verbose;
 			break;
 		case 'V':
 			printf("Version: %s\n", VERSION);
@@ -152,40 +231,5 @@ main(int argc, char **argv)
 	if (optind >= argc)
 		fatal(argv[0], "Fatal: Must provide DMK file name argument.\n");
 
-
-	for (int fi = optind; fi < argc; ++fi) {
-		struct dmk_state *dmkst;
-		int	tracks, ds, dd;
-
-		char *fn = argv[fi];
-
-		if (verbose)
-			printf("File: %s\n", fn);
-
-		dmkst = dmk_open_image(fn, 0, &ds, &tracks, &dd);
-		if (!dmkst) {
-			fprintf(stderr, "Failed to open '%s' (%d [%s]).\n",
-				fn, errno, strerror(errno));
-			return 2;
-		}
-
-		int	bse = 0;
-
-		for (int t = 0; t < tracks; ++t)
-			for (int s = 0; s <= ds; ++s)
-				bse += track_check(dmkst, s, t);
-
-		if (!bse)
-			printf("No bad sectors found.\n");
-
-		if (verbose && (fi < (argc-1)))
-			printf("\n");
-
-		if (!dmk_close_image(dmkst)) {
-			fprintf(stderr, "Close of '%s' failed.\n", fn);
-			return 1;
-		}
-	}
-
-	return 0;
+	return process_files(argc - optind, &argv[optind], verbose);
 }
