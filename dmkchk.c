@@ -73,8 +73,8 @@ track_check(struct dmk_state *dmkst, int side, int track,
 	if (*prev_total_sectors == -1)
 		*prev_total_sectors = total_sectors;
 
-	if (id_errors ||
-	    sector_errors || (*prev_total_sectors != total_sectors) ||
+	if (id_errors || sector_errors ||
+	    (*prev_total_sectors != total_sectors) ||
 	    (verbose > 1)) {
 
 		printf("%3d/%1d      %3d       ", track, side, total_sectors);
@@ -150,7 +150,7 @@ print_header()
 
 
 int
-process_files(int file_count, char **file_list, int verbose)
+process_files(int file_count, char **file_list, int print_headers, int verbose)
 {
 	for (int fi = 0; fi < file_count; ++fi) {
 		struct dmk_state *dmkst;
@@ -158,11 +158,12 @@ process_files(int file_count, char **file_list, int verbose)
 
 		char *fn = file_list[fi];
 
-		if (file_count > 1)
-			printf("%sFile: %s\n", (fi ? "\n\n" : ""), fn);
-
-		if (verbose)
+		if (print_headers) {
+			printf("%sFile: %s\n\n", (fi ? "\n\n" : ""), fn);
 			print_header();
+		} else {
+			if (fi) printf("\n\n");
+		}
 
 		dmkst = dmk_open_image(fn, 0, &ds, &tracks, &dd);
 		if (!dmkst) {
@@ -198,6 +199,7 @@ usage(const char *pgmname, int exitval)
 	fprintf(stderr, "Report sector errors in DMK file.\n");
 	fprintf(stderr, "Options:\n");
 	fprintf(stderr, "    -h		Display help and exit\n");
+	fprintf(stderr, "    -s		suppress headers\n");
 	fprintf(stderr, "    -v		verbose (repeat for more verbosity)\n");
 	fprintf(stderr, "    -V		Display version and exit\n");
 
@@ -216,16 +218,20 @@ fatal(const char *pgmname, const char *fmsg)
 int
 main(int argc, char **argv)
 {
+	int	print_headers = 1;
 	int	verbose = 0;
 	int	ch;
 
 	do {
-		ch = getopt(argc, argv, "hvV?");
+		ch = getopt(argc, argv, "hsvV?");
 
 		switch(ch) {
 		case 'h':
 		case '?':
 			usage(argv[0], 0);
+			break;
+		case 's':
+			print_headers = 0;
 			break;
 		case 'v':
 			++verbose;
@@ -240,5 +246,6 @@ main(int argc, char **argv)
 	if (optind >= argc)
 		fatal(argv[0], "Fatal: Must provide DMK file name argument.\n");
 
-	return process_files(argc - optind, &argv[optind], verbose);
+	return process_files(argc - optind, &argv[optind],
+			     print_headers, verbose);
 }
