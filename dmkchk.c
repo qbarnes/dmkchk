@@ -38,14 +38,19 @@ track_check(struct dmk_state *dmkst, int side, int track,
 		goto error;
 	}
 
+	unsigned int	bad_ids[uint_to_bits(256)] = { 0 };
 	unsigned int	bad_sectors[uint_to_bits(256)] = { 0 };
-	int		sector_errors = 0, total_sectors = 0;
+	int		id_errors = 0, sector_errors = 0, total_sectors = 0;
 	sector_info_t	si;
 
-	for (int sector = 0;
-	     (sector < DMK_MAX_SECTOR) && dmk_read_id(dmkst, &si); ++sector) {
+	int	idr;
+	while ((idr = dmk_read_id_with_crcs(dmkst, &si, NULL, NULL))) {
+		if (idr == -1) {
+			++id_errors;
+			set_bit(bad_ids, si.sector);
+		}
 
-		size_t	data_size = 128 << si.size_code;
+		size_t	data_size = dmk_sector_size(&si);
 		data = malloc(data_size);
 
 		if (!data) {
@@ -55,7 +60,8 @@ track_check(struct dmk_state *dmkst, int side, int track,
 		}
 
 		++total_sectors;
-		if (!dmk_read_sector(dmkst, &si, data)) {
+		if (dmk_read_sector_with_crcs(dmkst, &si, data,
+							NULL, NULL) != 1) {
 			set_bit(bad_sectors, si.sector);
 			++sector_errors;
 		}
@@ -67,7 +73,8 @@ track_check(struct dmk_state *dmkst, int side, int track,
 	if (*prev_total_sectors == -1)
 		*prev_total_sectors = total_sectors;
 
-	if (sector_errors || (*prev_total_sectors != total_sectors) ||
+	if (id_errors ||
+	    sector_errors || (*prev_total_sectors != total_sectors) ||
 	    (verbose > 1)) {
 
 		printf("%3d/%1d      %3d       ", track, side, total_sectors);
@@ -78,19 +85,22 @@ track_check(struct dmk_state *dmkst, int side, int track,
 			printf("Y      %3d", *prev_total_sectors);
 		}
 
-		printf("     %3d     ", sector_errors);
+		printf("     %3d     %3d      ", sector_errors, id_errors);
 
 		int reports = 0;
 		int start_range = -1, end_range = -1;
 
 		for (int i = 0; i < 256; ++i) {
-			if (test_bit(bad_sectors, i)) {
+			int bad = test_bit(bad_ids, i) ||
+				  test_bit(bad_sectors, i);
+
+			if (bad) {
 				end_range = i;
 				if (start_range == -1)
 					start_range = i;
 			}
 
-			if ((!test_bit(bad_sectors, i) || i == 255) &&
+			if ((!bad || i == 255) &&
 			     end_range != -1) {
 
 				if (reports)
@@ -117,7 +127,7 @@ error:
 	if (data)
 		free (data);
 
-	return sector_errors;
+	return sector_errors + id_errors;
 }
 
 
@@ -125,8 +135,8 @@ void
 print_header()
 {
 	static const char *const hdr[] = {
-		"Trk/Side  Sector  Sec Cnt  Prev    Sector  Error",
-		"          Count   Change?  SecCnt  Errors  List"
+		"Trk/Side  Sector  Sec Cnt  Prev    Sector  ID Field  Error",
+		"          Count   Change?  SecCnt  Errors  Errors    List"
 	};
 
 	puts(hdr[0]);
@@ -149,7 +159,7 @@ process_files(int file_count, char **file_list, int verbose)
 		char *fn = file_list[fi];
 
 		if (file_count > 1)
-			printf("%sFile: %s\n", (fi > 0 ? "\n" : ""), fn);
+			printf("%sFile: %s\n", (fi ? "\n\n" : ""), fn);
 
 		if (verbose)
 			print_header();
@@ -161,16 +171,15 @@ process_files(int file_count, char **file_list, int verbose)
 			return 2;
 		}
 
-		int	bse = 0;
+		int	errs = 0;
 		int	total_sectors = -1;
 
 		for (int t = 0; t < tracks; ++t)
 			for (int s = 0; s <= ds; ++s)
-				bse += track_check(dmkst, s, t, verbose,
+				errs += track_check(dmkst, s, t, verbose,
 						   &total_sectors);
 
-		if (!bse)
-			printf("No bad sectors found.\n");
+		printf("\nTotal errors found: %d\n", errs);
 
 		if (!dmk_close_image(dmkst)) {
 			fprintf(stderr, "Close of '%s' failed.\n", fn);
