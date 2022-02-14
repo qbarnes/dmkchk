@@ -25,11 +25,57 @@
 #define test_bit(A,k)        (!!(A[(k)/type_to_bits(*A)] & \
                                    ((typeof(*A))1 << ((k) % type_to_bits(*A)))))
 
+struct error_stats {
+	unsigned int	id_crc_errors;
+	unsigned int	sector_crc_errors;
+	unsigned int	sector_missing_errors;
+};
 
-/* prev_total_sectors is both an input and output parameter. */
+
 int
+format_range(const unsigned int *bitmap,
+	     unsigned int max_range,
+	     size_t bufsz, char *buf)
+{
+	int	reports = 0;
+	int	start_range = -1, end_range = -1;
+	char	*orig_buf = buf;
+
+	for (int i = 0; i < max_range+1; ++i) {
+		int bad = test_bit(bitmap, i);
+
+		if (bad) {
+			end_range = i;
+			if (start_range == -1)
+				start_range = i;
+		}
+
+		if ((!bad || i == max_range) &&
+		     end_range != -1) {
+
+			if (reports)
+				buf += snprintf(buf, bufsz, ", ");
+			else
+				reports = 1;
+
+			if (start_range != -1 &&
+			    start_range != end_range)
+				buf += snprintf(buf, bufsz, "%u-", start_range);
+
+			buf += snprintf(buf, bufsz, "%u", end_range);
+
+			start_range = end_range = -1;
+		}
+	}
+
+	return buf - orig_buf;
+}
+
+/* prev_total_sectors and es are both input and output parameters. */
+unsigned int
 track_check(struct dmk_state *dmkst, int side, int track,
-		int verbose, int *prev_total_sectors)
+		int verbose, int *prev_total_sectors,
+		struct error_stats *es)
 {
 	uint8_t	*data = NULL;
 
@@ -40,13 +86,16 @@ track_check(struct dmk_state *dmkst, int side, int track,
 
 	unsigned int	bad_ids[uint_to_bits(256)] = { 0 };
 	unsigned int	bad_sectors[uint_to_bits(256)] = { 0 };
-	int		id_errors = 0, sector_errors = 0, total_sectors = 0;
-	sector_info_t	si;
+	unsigned int	missing_sectors[uint_to_bits(256)] = { 0 };
+
+	struct error_stats	les = {0};
+	int			total_sectors = 0;
+	sector_info_t		si;
 
 	int	idr;
 	while ((idr = dmk_read_id_with_crcs(dmkst, &si, NULL, NULL))) {
 		if (idr == -1) {
-			++id_errors;
+			++les.id_crc_errors;
 			set_bit(bad_ids, si.sector);
 		}
 
@@ -60,10 +109,17 @@ track_check(struct dmk_state *dmkst, int side, int track,
 		}
 
 		++total_sectors;
-		if (dmk_read_sector_with_crcs(dmkst, &si, data,
-							NULL, NULL) != 1) {
+
+		int srr = dmk_read_sector_with_crcs(dmkst, &si, data,
+						    NULL, NULL);
+
+		if (srr == -1) {
 			set_bit(bad_sectors, si.sector);
-			++sector_errors;
+			++les.sector_crc_errors;
+		} else if (srr == 0 && idr != -1) {
+			/* Only count if there wasn't also an ID error. */
+			set_bit(missing_sectors, si.sector);
+			++les.sector_missing_errors;
 		}
 
 		free(data);
@@ -73,7 +129,9 @@ track_check(struct dmk_state *dmkst, int side, int track,
 	if (*prev_total_sectors == -1)
 		*prev_total_sectors = total_sectors;
 
-	if (id_errors || sector_errors ||
+	if (les.id_crc_errors ||
+	    les.sector_crc_errors ||
+	    les.sector_missing_errors ||
 	    (*prev_total_sectors != total_sectors) ||
 	    (verbose > 1)) {
 
@@ -85,38 +143,39 @@ track_check(struct dmk_state *dmkst, int side, int track,
 			printf("Y      %3d", *prev_total_sectors);
 		}
 
-		printf("     %3d     %3d      ", sector_errors, id_errors);
+		printf("     %3d     %3d      ",
+		       les.sector_crc_errors + les.sector_missing_errors,
+		       les.id_crc_errors);
 
-		int reports = 0;
-		int start_range = -1, end_range = -1;
+		char sbuf[256];
+		static const char btsem[] =
+			"Buffer for format range too small (%d).\n";
 
-		for (int i = 0; i < 256; ++i) {
-			int bad = test_bit(bad_ids, i) ||
-				  test_bit(bad_sectors, i);
-
-			if (bad) {
-				end_range = i;
-				if (start_range == -1)
-					start_range = i;
-			}
-
-			if ((!bad || i == 255) &&
-			     end_range != -1) {
-
-				if (reports)
-					printf(", ");
-				else
-					reports = 1;
-
-				if (start_range != -1 &&
-				    start_range != end_range)
-					printf("%u-", start_range);
-
-				printf("%u", end_range);
-
-				start_range = end_range = -1;
-			}
+		int blen = format_range(bad_sectors, 255, sizeof(sbuf), sbuf);
+		if (blen >= sizeof(sbuf)) {
+			fprintf(stderr, btsem, blen);
+			goto error;
 		}
+
+		if (blen) printf("C: %s", sbuf);
+
+		int mlen = format_range(missing_sectors, 255,
+					sizeof(sbuf), sbuf);
+		if (mlen >= sizeof(sbuf)) {
+			fprintf(stderr, btsem, mlen);
+			goto error;
+		}
+
+		if (mlen) printf("%sM: %s", (blen ? "; " : ""), sbuf);
+
+		int ilen = format_range(bad_ids, 255, sizeof(sbuf), sbuf);
+
+		if (ilen >= sizeof(sbuf)) {
+			fprintf(stderr, btsem, ilen);
+			goto error;
+		}
+
+		if (ilen) printf("%sID: %s", (blen||mlen ? "; " : ""), sbuf);
 
 		printf("\n");
 	}
@@ -127,7 +186,13 @@ error:
 	if (data)
 		free (data);
 
-	return sector_errors + id_errors;
+	es->sector_crc_errors     += les.sector_crc_errors;
+	es->sector_missing_errors += les.sector_missing_errors;
+	es->id_crc_errors         += les.id_crc_errors;
+
+	return les.sector_crc_errors +
+	       les.sector_missing_errors +
+	       les.id_crc_errors;
 }
 
 
@@ -150,7 +215,8 @@ print_header()
 
 
 int
-process_files(int file_count, char **file_list, int print_headers, int verbose)
+process_files(int file_count, char **file_list,
+	      int print_headfoot, int verbose)
 {
 	for (int fi = 0; fi < file_count; ++fi) {
 		struct dmk_state *dmkst;
@@ -158,7 +224,7 @@ process_files(int file_count, char **file_list, int print_headers, int verbose)
 
 		char *fn = file_list[fi];
 
-		if (print_headers) {
+		if (print_headfoot) {
 			printf("%sFile: %s\n\n", (fi ? "\n\n" : ""), fn);
 			print_header();
 		} else {
@@ -172,15 +238,28 @@ process_files(int file_count, char **file_list, int print_headers, int verbose)
 			return 2;
 		}
 
-		int	errs = 0;
-		int	total_sectors = -1;
+		int			total_sectors = -1;
+		struct error_stats	restats = {0};
 
 		for (int t = 0; t < tracks; ++t)
 			for (int s = 0; s <= ds; ++s)
-				errs += track_check(dmkst, s, t, verbose,
-						   &total_sectors);
+				track_check(dmkst, s, t, verbose,
+					    &total_sectors,
+					    &restats);
 
-		printf("\nTotal errors found: %d\n", errs);
+		printf("\n");
+
+		if (print_headfoot && restats.sector_crc_errors)
+			printf("Total sector CRC errors (C): %u\n",
+				restats.sector_crc_errors);
+
+		if (print_headfoot && restats.sector_missing_errors)
+			printf("Total sectors missing (M): %u\n",
+				restats.sector_missing_errors);
+
+		if (print_headfoot && restats.id_crc_errors)
+			printf("Total ID Field CRC errors (ID): %u\n",
+				restats.id_crc_errors);
 
 		if (!dmk_close_image(dmkst)) {
 			fprintf(stderr, "Close of '%s' failed.\n", fn);
@@ -195,13 +274,16 @@ process_files(int file_count, char **file_list, int print_headers, int verbose)
 void
 usage(const char *pgmname, int exitval)
 {
-	fprintf(stderr, "Usage: %s: [option ...] {dmkfile ...}\n", pgmname);
-	fprintf(stderr, "Report sector errors in DMK file.\n");
-	fprintf(stderr, "Options:\n");
-	fprintf(stderr, "    -h		Display help and exit\n");
-	fprintf(stderr, "    -s		suppress headers\n");
-	fprintf(stderr, "    -v		verbose (repeat for more verbosity)\n");
-	fprintf(stderr, "    -V		Display version and exit\n");
+	static const char usage[] =
+		"Usage: %s: [option ...] {dmkfile ...}\n"
+		"Report ID Field and sector errors in the DMK files.\n"
+		"Options:\n"
+		"    -h		Display help and exit\n"
+		"    -s		suppress headers and footers\n"
+		"    -v		verbose (repeat for more verbosity)\n"
+		"    -V		Display version and exit\n";
+
+	fprintf(stderr, usage, pgmname);
 
 	exit(exitval);
 }
@@ -218,7 +300,7 @@ fatal(const char *pgmname, const char *fmsg)
 int
 main(int argc, char **argv)
 {
-	int	print_headers = 1;
+	int	print_headfoot = 1;
 	int	verbose = 0;
 	int	ch;
 
@@ -231,7 +313,7 @@ main(int argc, char **argv)
 			usage(argv[0], 0);
 			break;
 		case 's':
-			print_headers = 0;
+			print_headfoot = 0;
 			break;
 		case 'v':
 			++verbose;
@@ -247,5 +329,5 @@ main(int argc, char **argv)
 		fatal(argv[0], "Fatal: Must provide DMK file name argument.\n");
 
 	return process_files(argc - optind, &argv[optind],
-			     print_headers, verbose);
+			     print_headfoot, verbose);
 }
