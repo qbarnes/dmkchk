@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
@@ -290,9 +291,13 @@ usage(const char *pgmname, int exitval)
 
 
 void
-fatal(const char *pgmname, const char *fmsg)
+fatal(const char *pgmname, const char *fmsg, ...)
 {
-	fprintf(stderr, fmsg);
+	va_list	ap;
+
+	va_start(ap, fmsg);
+	vfprintf(stderr, fmsg, ap);
+	va_end(ap);
 	usage(pgmname, 1);
 }
 
