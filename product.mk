@@ -1,4 +1,4 @@
 PRODUCT   = dmkchk
-VERSION   = 0.0.6
+VERSION   = 0.0.7
 TARBALL   = $(PRODUCT)-$(VERSION).tar
 TARBALLGZ = $(TARBALL).gz
