@@ -78,7 +78,8 @@ track_check(struct dmk_state *dmkst, int side, int track,
 		int verbose, int *prev_total_sectors,
 		struct error_stats *es)
 {
-	uint8_t	*data = NULL;
+	uint8_t			*data = NULL;
+	struct error_stats	les = {0};
 
 	if (!dmk_seek(dmkst, track, side)) {
 		printf("Seek error on track %d, side %d!\n", track, side);
@@ -89,7 +90,6 @@ track_check(struct dmk_state *dmkst, int side, int track,
 	unsigned int	bad_sectors[uint_to_bits(256)] = { 0 };
 	unsigned int	missing_sectors[uint_to_bits(256)] = { 0 };
 
-	struct error_stats	les = {0};
 	int			total_sectors = 0;
 	sector_info_t		si;
 
