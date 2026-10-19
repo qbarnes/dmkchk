@@ -30,6 +30,7 @@ struct error_stats {
 	unsigned int	id_crc_errors;
 	unsigned int	sector_crc_errors;
 	unsigned int	sector_missing_errors;
+	unsigned int	seek_errors;
 };
 
 
@@ -83,6 +84,7 @@ track_check(struct dmk_state *dmkst, int side, int track,
 
 	if (!dmk_seek(dmkst, track, side)) {
 		printf("Seek error on track %d, side %d!\n", track, side);
+		++les.seek_errors;
 		goto error;
 	}
 
@@ -190,6 +192,7 @@ error:
 	es->sector_crc_errors     += les.sector_crc_errors;
 	es->sector_missing_errors += les.sector_missing_errors;
 	es->id_crc_errors         += les.id_crc_errors;
+	es->seek_errors           += les.seek_errors;
 
 	return les.sector_crc_errors +
 	       les.sector_missing_errors +
@@ -219,6 +222,8 @@ int
 process_files(int file_count, char **file_list,
 	      int print_headfoot, int verbose)
 {
+	int	status = 0;
+
 	for (int fi = 0; fi < file_count; ++fi) {
 		struct dmk_state *dmkst;
 		int	tracks, ds, dd;
@@ -262,13 +267,20 @@ process_files(int file_count, char **file_list,
 			printf("Total ID Field CRC errors (ID): %u\n",
 				restats.id_crc_errors);
 
+		if (print_headfoot && restats.seek_errors)
+			printf("Total seek errors: %u\n",
+				restats.seek_errors);
+
+		if (restats.seek_errors)
+			status = 2;
+
 		if (!dmk_close_image(dmkst)) {
 			fprintf(stderr, "Close of '%s' failed.\n", fn);
 			return 1;
 		}
 	}
 
-	return 0;
+	return status;
 }
 
 
